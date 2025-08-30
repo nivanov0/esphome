@@ -43,3 +43,15 @@ output:
   - platform: gpio
     id: led_blue
     pin: GPIO22
+    
+button:
+  - platform: factory_reset
+    name: Restart with Factory Default Settings
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: ESP IP Address
+    ssid:
+      name: ESP Connected SSID
+    mac_address:
+      name: ESP Mac Wifi Address
