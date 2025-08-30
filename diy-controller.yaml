@@ -54,3 +54,6 @@ text_sensor:
       name: ESP Connected SSID
     mac_address:
       name: ESP Mac Wifi Address
+web_server:
+  ota: false
+  local: true
