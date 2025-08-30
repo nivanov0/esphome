@@ -3,7 +3,7 @@ esphome:
   friendly_name: DIY esp32-c6 controller
   name_add_mac_suffix: True
   project:
-    name: esphome.project-template
+    name: nivanov0.diy-controller
     version: "1.0"
 
 dashboard_import:
