@@ -1,0 +1,267 @@
+substitutions:
+  name: underfloor-power-meter
+esphome:
+  name: ${name}
+  friendly_name: "Underfloor Power Meter"
+  platformio_options:
+    board_build.flash_mode: dio
+  name_add_mac_suffix: true
+  project:
+    name: "nivanov0.underfloor_power_meter"
+    version: "1.0.0"
+dashboard_import:
+  package_import_url: github://nivanov0/esphome/heat-power-meter.yaml@main
+  import_full_config: false
+esp32:
+  board: esp32-c6-devkitm-1
+  variant: esp32c6
+  framework:
+    type: esp-idf
+
+preferences:
+  flash_write_interval: 15min
+
+status_led:
+  pin:
+    number: GPIO23
+wifi:
+  ap:
+  reboot_timeout: 0s
+  
+improv_serial:
+esp32_improv:
+  authorizer: none
+  status_indicator: led_blue
+api:
+  reboot_timeout: 0s
+logger:
+ota:
+  platform: esphome
+  
+captive_portal:
+time:
+  - platform: sntp
+    id: sntp_time
+    
+web_server:
+  ota: false
+  local: true
+
+button:
+- platform: factory_reset
+  name: Restart with Factory Default Settings
+  
+number:
+  - platform: template
+    id: rho_c
+    name: "Heat Capacity J/L·°C"
+    min_value: 3500
+    max_value: 4300
+    step: 10
+    restore_value: true
+    initial_value: 4180
+    optimistic: true
+
+  - platform: template
+    id: min_q_lpm
+    name: "Min flow cutoff [L/min]"
+    min_value: 0.0
+    max_value: 2.0
+    step: 0.05
+    restore_value: true
+    initial_value: 0.25
+    optimistic: true
+
+  
+sensor:
+  - platform: wifi_signal # Reports the WiFi signal strength/RSSI in dB
+    name: "WiFi Signal dB"
+    id: wifi_signal_db
+    update_interval: 60s
+    entity_category: diagnostic
+
+  - platform: copy # Reports the WiFi signal strength in %
+    source_id: wifi_signal_db
+    name: "WiFi Signal Percent"
+    filters:
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+    unit_of_measurement: "%"
+    entity_category: diagnostic
+    
+  - platform: pulse_counter
+    id: flow_lpm
+    name: "Flow"
+    pin:
+      number: GPIO7
+      mode:
+        input: true
+        pullup: true
+    update_interval: 5s
+    unit_of_measurement: "L/min"
+    accuracy_decimals: 2
+    device_class: volume_flow_rate
+    state_class: measurement
+    filters:
+      - lambda: |-
+          const float F = x;
+          float q = F / 6.6f;
+          if (q < id(min_q_lpm).state) q = 0.0f;
+          return q;
+
+# ===================== NTC1 (Supply): IO1 =====================
+  - platform: adc
+    id: adc_supply
+    pin: GPIO1
+    update_interval: 2s
+    internal: true
+    filters:
+      - median:
+          window_size: 5
+          send_every: 1
+          send_first_at: 1
+      - exponential_moving_average:
+          alpha: 0.2
+          send_every: 1
+
+  - platform: resistance
+    id: r_supply
+    sensor: adc_supply
+    configuration: DOWNSTREAM
+    resistor: 4.7kOhm
+
+  - platform: ntc
+    id: t_supply
+    name: "Supply Temp"
+    sensor: r_supply
+    calibration:
+      b_constant: 3950
+      reference_temperature: 25°C
+      reference_resistance: 10kOhm
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+
+# ===================== NTC2 (Return): IO5 =====================
+  - platform: adc
+    id: adc_return
+    pin: GPIO5
+    update_interval: 2s
+    internal: true
+    filters:
+      - median:
+          window_size: 5
+          send_every: 1
+          send_first_at: 1
+      - exponential_moving_average:
+          alpha: 0.2
+          send_every: 1
+
+  - platform: resistance
+    id: r_return
+    sensor: adc_return
+    configuration: DOWNSTREAM
+    resistor: 4.7kOhm
+
+  - platform: ntc
+    id: t_return
+    name: "Return Temp"
+    sensor: r_return
+    calibration:
+      b_constant: 3950
+      reference_temperature: 25°C
+      reference_resistance: 10kOhm
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+
+  - platform: template
+    id: delta_t
+    name: "ΔT"
+    unit_of_measurement: "°C"
+    accuracy_decimals: 2
+    update_interval: 5s
+    device_class: temperature
+    state_class: measurement
+    lambda: |-
+      if (isnan(id(t_supply).state) || isnan(id(t_return).state)) return NAN;
+      return id(t_supply).state - id(t_return).state;
+
+# ===================== Power =====================
+  - platform: template
+    id: heat_power_w
+    name: "Heat Power"
+    unit_of_measurement: "W"
+    accuracy_decimals: 0
+    update_interval: 5s
+    device_class: power
+    state_class: measurement
+    lambda: |-
+      float dT = id(delta_t).state;
+      float lpm = id(flow_lpm).state;
+      float rc  = id(rho_c).state;
+      if (isnan(dT) || isnan(lpm) || isnan(rc)) return NAN;
+      float lps = lpm / 60.0f;
+      return dT * lps * rc;
+
+# ===================== Consumption =====================
+  - platform: integration
+    id: heat_energy_wh
+    name: "Heat Energy (Wh)"
+    sensor: heat_power_w
+    time_unit: h
+    unit_of_measurement: "Wh"
+    accuracy_decimals: 2
+    device_class: energy
+    state_class: total_increasing
+    restore: true
+
+  - platform: template
+    name: "Heat Energy (kWh)"
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 3
+    device_class: energy
+    state_class: total_increasing
+    lambda: |-
+      if (isnan(id(heat_energy_wh).state)) return NAN;
+      return id(heat_energy_wh).state / 1000.0f;
+
+# ===================== State =====================
+binary_sensor:
+  - platform: template
+    name: "Flow Present"
+    lambda: |-
+      return (!isnan(id(flow_lpm).state) && id(flow_lpm).state > id(min_q_lpm).state);
+
+text_sensor:
+  - platform: template
+    name: "Local Time"
+    id: local_time_str
+    icon: "mdi:clock"
+    lambda: |-
+      auto time = id(sntp_time).now();
+      if (!time.is_valid()) return {"Time not synced"};
+      char buffer[20];
+      snprintf(buffer, sizeof(buffer), "%02d:%02d:%02d", time.hour, time.minute, time.second);
+      return {buffer};
+    update_interval: 10s
+
+  - platform: wifi_info
+    ip_address:
+      name: ESP IP Address
+
+    ssid:
+      name: ESP Connected SSID
+      
+    mac_address:
+      name: ESP Mac Wifi Address
+  - platform: template
+    name: "Heatmeter Status"
+    lambda: |-
+      if (isnan(id(t_supply).state) || isnan(id(t_return).state)) return {"No temp"};
+      if (isnan(id(flow_lpm).state)) return {"No flow"};
+      if (id(flow_lpm).state < id(min_q_lpm).state) return {"Flow too low"};
+      return {"OK"};
+output:
+  - platform: gpio
+    id: led_blue
+    pin: GPIO22
