@@ -1,0 +1,59 @@
+esphome:
+  name: diy-controller
+  friendly_name: DIY esp32-c6 controller
+  name_add_mac_suffix: True
+  project:
+    name: nivanov0.diy-controller
+    version: "1.0"
+
+dashboard_import:
+  package_import_url: github://nivanov0/esphome/diy-controller.yaml@diy-controller
+  import_full_config: false
+esp32:
+  board: esp32-c6-devkitm-1
+  framework:
+    type: esp-idf
+  
+  
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  
+ota:
+  - platform: esphome
+
+wifi:
+  ap:
+
+captive_portal:
+
+status_led:
+  pin:
+    number: GPIO23
+    
+improv_serial:
+esp32_improv:
+  authorizer: none
+  status_indicator: led_blue
+
+output:
+  - platform: gpio
+    id: led_blue
+    pin: GPIO22
+    
+button:
+  - platform: factory_reset
+    name: Restart with Factory Default Settings
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: ESP IP Address
+    ssid:
+      name: ESP Connected SSID
+    mac_address:
+      name: ESP Mac Wifi Address
+web_server:
+  ota: false
+  local: true
