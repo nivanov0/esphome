@@ -114,6 +114,7 @@ sensor:
     pin: GPIO1
     update_interval: 2s
     internal: true
+    attenuation: 11db
     filters:
       - median:
           window_size: 5
@@ -147,6 +148,7 @@ sensor:
     pin: GPIO5
     update_interval: 2s
     internal: true
+    attenuation: 11db
     filters:
       - median:
           window_size: 5
