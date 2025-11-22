@@ -35,6 +35,7 @@ esp32_improv:
 api:
   reboot_timeout: 0s
 logger:
+  level: INFO
 ota:
   platform: esphome
   
