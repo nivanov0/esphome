@@ -34,6 +34,8 @@ esp32_improv:
   status_indicator: led_blue
 api:
   reboot_timeout: 0s
+  encryption:
+    key: "+4VAaI4vcBaniQYhdo8mn5K5BM5XzLo/AfkrRsUlzNk="
 logger:
   level: INFO
 ota:
