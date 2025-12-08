@@ -1,12 +1,13 @@
 substitutions:
   name: underfloor-power-meter-e81c3c
+  cutoff_dt: 5.0f
 esphome:
   name: ${name}
   friendly_name: Underfloor Power Meter e81c3c
   name_add_mac_suffix: false
   project:
     name: nivanov0.underfloor_power_meter
-    version: 1.0.0
+    version: 1.0.1
 
 esp32:
   board: esp32-c6-devkitm-1
@@ -33,6 +34,9 @@ esp32_improv:
   status_indicator: led_blue
 api:
   reboot_timeout: 0s
+  encryption:
+    key: !secret underfloor-power-meter-e81c3c
+
 logger:
   level: INFO
 ota:
@@ -91,7 +95,12 @@ sensor:
   pin: GPIO1
   update_interval: 2s
   internal: true
-  attenuation: 11db
+  attenuation: 12db
+  filters:
+    - median:
+        window_size: 3
+        send_every: 4
+        send_first_at: 3
   
 
 - platform: resistance
@@ -105,9 +114,12 @@ sensor:
   name: Supply Temp
   sensor: r_supply
   calibration:
-    - 10.0kOhm -> 25°C
+    - 11835.2Ohm -> 20.7°C
     - 7503Ohm -> 29.7°C
     - 7023.35Ohm -> 30.9°C
+#    b_constant: 3950
+#    reference_temperature: 25°C
+#    reference_resistance: 10kOhm
 
   unit_of_measurement: °C
   device_class: temperature
@@ -119,7 +131,12 @@ sensor:
   pin: GPIO5
   update_interval: 2s
   internal: true
-  attenuation: 11db
+  attenuation: 12db
+  filters:
+    - median:
+        window_size: 3
+        send_every: 4
+        send_first_at: 3
 
 
 - platform: resistance
@@ -133,9 +150,12 @@ sensor:
   name: Return Temp
   sensor: r_return
   calibration:
-    - 10.0kOhm -> 25°C
+    - 12400.3Ohm -> 20.7°C
     - 8810.5Ohm -> 29.7°C
     - 8410.7Ohm -> 30.7°C
+#    b_constant: 3950
+#    reference_temperature: 25°C
+#    reference_resistance: 10kOhm
     
   unit_of_measurement: °C
   device_class: temperature
@@ -165,9 +185,12 @@ sensor:
   lambda: |-
     float dT = id(delta_t).state;
     float lpm = id(flow_lpm).state;
-    float rc  = 4184;
-    if (isnan(dT) || isnan(lpm) || isnan(rc)) return NAN;
-    float lps = lpm / 60.0f;
+    const float rc  = 4184.0f;  // J/L·°C
+
+    if (isnan(dT) || isnan(lpm)) return NAN;
+    if (fabsf(dT) < ${cutoff_dt}) return 0.0f;
+
+    float lps = lpm / 60.0f;      // L/min -> L/s
     return dT * lps * rc;
 
 # ===================== Consumption =====================
@@ -194,6 +217,7 @@ sensor:
 
 - platform: homeassistant
   entity_id: sensor.s3em_tp_total_active_power
+  name: 3EM-TP power
   id: power_elec_w
   internal: true
   unit_of_measurement: W
@@ -206,17 +230,50 @@ sensor:
   unit_of_measurement: ""
   accuracy_decimals: 2
   update_interval: 5s
+  state_class: total
   lambda: |-
     float pe = id(power_elec_w).state;
     float ph = id(heat_power_w).state;
     // режем нереални стойности при спиране/старт
-    if (pe <= 50.0f || ph <= 0.0f) {
+    if (pe <= 0.0f || ph <= 0.0f) {
       return 0.0f;
     }
     return ph / pe;
 
-  
+- platform: total_daily_energy
+  name: "TP Electric Energy Today (kWh)"
+  id: tp_elec_energy_today_kwh
+  power_id: power_elec_w
+  unit_of_measurement: kWh
+  accuracy_decimals: 3
+  device_class: energy
+  state_class: total_increasing
 
+- platform: template
+  id: cop_today
+  name: "COP Today"
+  unit_of_measurement: ""
+  accuracy_decimals: 2
+  update_interval: 60s
+  state_class: total
+  lambda: |-
+    float e_heat = id(tp_heat_energy_today_kwh).state;
+    float e_elec = id(tp_elec_energy_today_kwh).state;
+
+    if (isnan(e_heat) || isnan(e_elec) || e_elec <= 0.0f) {
+      return 0.0f;
+    }
+
+    return e_heat / e_elec;
+
+- platform: total_daily_energy
+  name: "TP Heat Energy Today (kWh)"
+  id: tp_heat_energy_today_kwh
+  power_id: heat_power_w
+  unit_of_measurement: kWh
+  accuracy_decimals: 3
+  device_class: energy
+  state_class: total_increasing
 
 # ===================== State =====================
 binary_sensor:
